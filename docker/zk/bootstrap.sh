@@ -9,11 +9,12 @@
 
 export NPI_HOME=${NPI_HOME:-"/opt/npi"}
 export START_DELAY=${START_DELAY:-0}
+export PATH=$PATH:/usr/bin
 
 
 term_handler() {
 	echo "Signal received, stopping process"
-	(cd $NPI_HOME/services/kafka && ./bin/zookeeper-server-stop.sh)
+	(cd $NPI_HOME/bin && npid stop zookeeper)
 }
 
 trap "term_handler;exit" SIGTERM SIGINT
@@ -21,4 +22,6 @@ trap "term_handler;exit" SIGTERM SIGINT
 echo "Starting ZOOKEEPER services"
 sleep $START_DELAY
 
-(cd $NPI_HOME/services/kafka && ./bin/zookeeper-server-start.sh $NPI_HOME/services/conf/kafka/zookeeper.properties) & wait ${!}
+(cd $NPI_HOME/bin && npid start zookeeper)
+
+while [ $(ps `head -1 ${NPI_HOME}/var/zookeeper.pid` 2&> /dev/null;echo $?) -eq 0 ];do sleep 1;done
