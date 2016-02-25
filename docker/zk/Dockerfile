@@ -10,6 +10,7 @@ ADD ./resources/jre $NPI_HOME/resources/jre
 ADD ./services/kafka $NPI_HOME/services/kafka
 ADD ./services/conf/kafka $NPI_HOME/services/conf/kafka
 ADD ./docker/zk/bootstrap.sh $NPI_HOME/
+ADD ./bin $NPI_HOME/bin
 RUN mkdir -p $NPI_HOME/work $NPI_HOME/services/kafka/log
 
 RUN chown -R 1000:1000 $NPI_HOME
