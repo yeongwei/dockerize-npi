@@ -5,6 +5,7 @@ ENV NPI_HOME /opt/npi
 ENV JAVA_HOME $NPI_HOME/resources/jre/RHEL/ibm-java-x86_64-80/jre
 RUN useradd -u 1000 netcool
 RUN mkdir -p $NPI_HOME
+RUN yum install -y nc
 
 ADD ./resources/jre $NPI_HOME/resources/jre
 ADD ./services/kafka $NPI_HOME/services/kafka
