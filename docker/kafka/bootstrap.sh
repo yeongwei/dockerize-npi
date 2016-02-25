@@ -9,6 +9,7 @@
 
 export NPI_HOME=${NPI_HOME:-"/opt/npi"}
 export START_DELAY=${START_DELAY:-3}
+export PATH=$PATH:/usr/bin
 
 echo "Starting KAFKA services"
 
@@ -16,7 +17,7 @@ sleep $START_DELAY
 
 term_handler() {
 	echo "Signal received, stopping process"
-	(cd $NPI_HOME/services/kafka && ./bin/kafka-server-stop.sh)
+	(cd $NPI_HOME/bin && ./npid stop kafka)
 }
 
 trap "term_handler;exit" SIGTERM SIGINT
@@ -44,4 +45,6 @@ if [ ! -z $EXT_PORT ];then
 
 fi
 
-(cd $NPI_HOME/services/kafka && ./bin/kafka-server-start.sh $NPI_HOME/services/conf/kafka/kafka-server.properties) & wait ${!}
+(cd $NPI_HOME/bin && ./npid start kafka)
+
+while [ $(ps `head -1 $NPI_HOME/var/kafka.pid` 2&> /dev/null;echo $?) -eq 0 ];do sleep 1;done
