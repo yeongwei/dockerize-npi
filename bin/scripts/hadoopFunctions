@@ -146,7 +146,7 @@ soureceHadoopEnv() {
 ## Entry function to start Hadoop
 ##
 startHadoop() {
-	emergencyExit `isHadoopStarted` "GYMPB0124E: ${HADOOP_READABLE} is already running."
+	# emergencyExit `isHadoopStarted` "GYMPB0124E: ${HADOOP_READABLE} is already running."
 	
 	log INFO "GYMPB0112I: Starting ${HADOOP_READABLE}."
 	checkDependent ${HADOOP_APP_NAME}
@@ -171,7 +171,7 @@ startHadoop() {
 		dt_service start
 	fi
 
-	checkHadoop
+	# checkHadoop
 }
 
 ##
