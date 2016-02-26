@@ -25,9 +25,10 @@ sleep $START_DELAY
 (cd $NPI_HOME/bin && ./npid start npi)
 sleep $START_DELAY
 
-PID="`head -1 storage.pid`"
-PID="${PID} `head -1 analytics.pid`"
-PID="${PID} `head -1 collector.pid`"
-PID="${PID} `head -1 ui.pid`"
+pidFiles=("storage.pid" "analytics.pid" "collector.pid" "ui.pid")
+PID=""
+for pidFile in "${pidFiles[@]}"; do
+	PID="$PID `head -1 ${NPI_HOME}/var/${pidFile}`"
+done
 
 while [ $(ps ${PID} 2&> /dev/null;echo $?) -eq 0 ];do sleep 1;done
