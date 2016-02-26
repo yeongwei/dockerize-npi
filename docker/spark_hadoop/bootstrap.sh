@@ -21,4 +21,9 @@ term_handler() {
 
 trap "term_handler;exit" SIGTERM SIGINT
 
-while [ $(ps `cat $NPI_HOME/var/hadoop*.pid | tr '\' ' '` 2&> /dev/null;echo $?) -eq 0 ];do sleep 1;done
+(cd $NPI_HOME/bin && ./npid start hadoop)
+
+PIDS="`cat $NPI_HOME/var/hadoop*.pid | tr '\n' ' '`"
+PIDS="${PIDS}`cat $NPI_HOME/var/yarn*.pid | tr '\n' ' '`"
+
+while [ $(ps `cat ${PIDS} | tr '\n' ' '` 2&> /dev/null;echo $?) -eq 0 ];do sleep 1;done
