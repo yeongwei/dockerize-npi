@@ -87,7 +87,7 @@ startNpi() {
 	emergencyExit ${status} "GYMPB0124E: ${NPI_READABLE} component is already running."	
 
 	log INFO "GYMPB0112I: Starting `getReadableName ${1}`"
-	checkDependent ${NPI_APP_NAME}	
+	# checkDependent ${NPI_APP_NAME}	
 
 	check_parameters
 
