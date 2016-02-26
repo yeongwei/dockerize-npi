@@ -6,12 +6,15 @@ ENV JAVA_HOME $NPI_HOME/resources/jre/RHEL/ibm-java-x86_64-80/jre
 RUN useradd -u 1000 netcool
 RUN mkdir -p $NPI_HOME
 
+RUN yum install -y nc
+RUN yum install -y which
+
 ADD ./resources/jre $NPI_HOME/resources/jre
 ADD ./services/hadoop $NPI_HOME/services/hadoop
 ADD ./services/conf $NPI_HOME/services/conf
 ADD ./services/spark $NPI_HOME/services/spark
 ADD ./docker/spark_hadoop/bootstrap.sh $NPI_HOME/
-COPY ./bin/initHadoopNamenode.sh $NPI_HOME/bin/initHadoopNamenode.sh
+ADD ./bin $NPI_HOME/bin
 RUN mkdir -p $NPI_HOME/work $NPI_HOME/services/hadoop/logs
 
 RUN chown -R 1000:1000 $NPI_HOME
