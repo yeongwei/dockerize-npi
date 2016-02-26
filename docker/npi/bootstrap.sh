@@ -10,52 +10,24 @@
 export NPI_HOME=${NPI_HOME:-"/opt/npi"}
 export PROG_NAME=npi
 export START_DELAY=${START_DELAY:-3}
-
-WEB_PORT=${WEB_PORT:-8081}
-WEB_SEC_PORT=${WEB_SEC_PORT:-9443}
-JMX_PORT=${JMX_PORT:-9010}
-
-if [ ! -z $STORAGE_URL ];then
-  JVM_OPT="${JVM_OPT} -Dstorage.uri=${STORAGE_URL}"
-fi
-
-if [ ! -z $ZK_URL ];then
-  JVM_OPT="${JVM_OPT} -Dmain.zk-url=${ZK_URL}"
-fi
-
-if [ ! -z $KAFKA_URL ];then
-  JVM_OPT="${JVM_OPT} -Dmessaging.kafka.producer.broker-list=${KAFKA_URL}"
-fi
-
-if [ ! -z ${COMPONENT} ];then
-   COMPONENT_OPT="-component ${COMPONENT}"
-fi
-
-if [ ! -z ${JDBC_SERVICE} ];then
-	JVM_OPT="${JVM_OPT} -Dstorage.jdbc-service=${JDBC_SERVICE}"
-fi
-
-export JVM_OPT
+export PATH=$PATH:/usr/bin
 
 term_handler() {
-    RUNNING_PID=$1
-    trycount=0
-	echo "Signal received, stopping process"
-	while [ "${RUNNING_PID}" != "" ] && [ $trycount -le 10 ]; do
-      echo "GYMPB0111I: Stopping $PROG_NAME (PID: $RUNNING_PID)"
-      kill -HUP $RUNNING_PID
-      trycount=$(( $trycount + 1 ))
-      sleep 15
-      RUNNING_PID=$(ps -eaf | grep -v grep | grep Dprog.name=${PROG_NAME} | awk '{print $2}' | xargs)
-    done
+	echo "Stopping NPI"
+	(cd $NPI_HOME/bin && ./npid stop npi)
 }
 
+trap "term_handler; exit" SIGTERM SIGINT
+
+echo "Staring NPI"
 sleep $START_DELAY
-$NPI_HOME/bin/npi ${COMPONENT_OPT} > /dev/null 2> $NPI_HOME/log/npid.log &
-WAIT_PID=${!}
 
-trap "term_handler $WAIT_PID;exit" SIGTERM SIGINT
+(cd $NPI_HOME/bin && ./npid start npi)
+sleep $START_DELAY
 
-#Enable log file creation
-touch $NPI_HOME/log/npi.log
-tail -f $NPI_HOME/log/npi.log & wait $WAIT_PID
+PID="`head -1 storage.pid`"
+PID="${PID} `head -1 analytics.pid`"
+PID="${PID} `head -1 collector.pid`"
+PID="${PID} `head -1 ui.pid`"
+
+while [ $(ps ${PID} 2&> /dev/null;echo $?) -eq 0 ];do sleep 1;done
