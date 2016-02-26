@@ -1,0 +1,69 @@
+# Sample template Docker Compose YML file 
+# The components can work within Docker NAT network, setup EXT_HOSTNAME
+# to indicate the running host hostname and must be resolvable via DNS
+# or use extra_hosts setting from Docker.
+
+storage:
+  image: npi-storage:latest
+  net: "host"
+  ports:
+      - 8081:8081
+      - 2552:2552
+  environment:
+      EXT_HOSTNAME: ${HOSTNAME}
+      EXT_PORT: 2552
+      STORAGE_URL: ${HADOOP_NAMENODE_URL}
+      ZK_URL: ${ZOOKEEP_URL}
+      KAFKA_URL: ${KAFKA_BROKER_LIST}
+      COMPONENT: storage
+  volumes:
+      - ${NPI_WORK_PATH}:/opt/npi/work
+#      - ${NPI_CONF_PATH}:/opt/npi/conf
+analytics:
+  image: npi-analytics:latest
+  ports:
+      - 2553:2552
+  environment:
+      EXT_HOSTNAME: ${HOSTNAME}
+      EXT_PORT: 2553
+      STORAGE_URL: ${HADOOP_NAMENODE_URL}
+      ZK_URL: ${ZOOKEEP_URL}
+      KAFKA_URL: ${KAFKA_BROKER_LIST}
+      COMPONENT: analytics
+      JDBC_SERVICE: ${NPI_STORAGE_HOST}:8081
+  volumes:
+      - ${NPI_WORK_PATH}:/opt/npi/work
+#      - ${NPI_CONF_PATH}:/opt/npi/conf
+collector:
+  image: npi-collector:latest
+  ports:
+      - 4379/udp:4379/udp
+      - 2554:2552
+  environment:
+      EXT_HOSTNAME: ${HOSTNAME}
+      EXT_PORT: 2554
+      STORAGE_URL: ${HADOOP_NAMENODE_URL}
+      ZK_URL: ${ZOOKEEP_URL}
+      KAFKA_URL: ${KAFKA_BROKER_LIST}
+      COMPONENT: collector
+  volumes:
+      - ${NPI_WORK_PATH}:/opt/npi/work
+#      - ${NPI_CONF_PATH}:/opt/npi/conf
+ui:
+  image: npi-ui:latest
+  ports:
+      - 8082:8081
+      - 9443:9443
+      - 2555:2552
+  environment:
+      EXT_HOSTNAME: ${HOSTNAME}
+      EXT_PORT: 2555
+      STORAGE_URL: ${HADOOP_NAMENODE_URL}
+      ZK_URL: ${ZOOKEEP_URL}
+      KAFKA_URL: ${KAFKA_BROKER_LIST}
+      COMPONENT: ui
+      JDBC_SERVICE: ${NPI_STORAGE_HOST}:8081
+  volumes:
+      - ${NPI_WORK_PATH}:/opt/npi/work
+#      - ${NPI_CONF_PATH}:/opt/npi/conf
+      
