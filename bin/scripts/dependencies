@@ -1,0 +1,101 @@
+#!/bin/bash
+
+##
+## If Zookeeper not started then perform emergencyExit
+##
+needZookeeper() {
+	status=`isZookeeperStarted`
+	if [ ${status} -ne 1 ]; then
+		emergencyExit "1" "GYMPB0111E: ${ZOOKEEPER_READABLE} not started."
+	fi
+}
+
+##
+## If Kafka not started then perform emergencyExit
+## 
+needKafka() {
+	status=`isKafkaStarted`
+	if [ ${status} -ne 1 ]; then
+		emergencyExit "1" "GYMPB0111E: ${KAFKA_READABLE} not started."
+	fi
+}
+
+##
+## Prints Kafka status
+##
+isKafkaRunning() {
+	status=`isKafkaStarted`
+	if [ ${status} -eq 1 ]; then
+		emergencyExit "1" "GYMPB0111E: ${KAFKA_READABLE} is started."
+	fi
+}
+
+##
+## If Hadoop not started then perform emergencyExit
+##
+needHadoop() {
+	status=`isHadoopStarted`
+	if [ ${status} -ne 1 ]; then
+		emergencyExit "1" "GYMPB0111E: ${HADOOP_READABLE} not started."
+	fi
+}
+
+##
+## Only checks for local NPI instance
+## Pending:
+## 	1. Need to check remote NPI instance ???
+##
+isAnyNpiRunning() {
+	npiPidFiles=(`getNpiPidFiles`)
+
+	for pidFile in "${npiPidFiles[@]}"; do
+		componentName=`echo ${pidFile} | cut -d. -f1`
+		pidStatus=`isPidValid ${componentName}`
+		if [ ${pidStatus} -eq 1 ]; then
+			emergencyExit "1" "GYMPB00115E: ${NPI_READABLE} is started."
+			break
+		fi
+	done
+}
+
+##
+## 1. "I depend on someone"
+##
+checkDependent() {
+	case "${1}" in
+		"${ZOOKEEPER_APP_NAME}") ;;
+		"${KAFKA_APP_NAME}")
+			needZookeeper
+		;;
+		"${HADOOP_APP_NAME}") ;;
+		"${NPI_STORAGE_APP_NAME}" | "${NPI_ANALYTICS_APP_NAME}" | "${NPI_COLLECTOR_APP_NAME}" | "${NPI_UI_APP_NAME}" | "${NPI_APP_NAME}")
+			needZookeeper; needKafka; needHadoop;
+		;;
+		*)
+			emergencyExit "1" "GYMPB0116E: Unable to resolve dependent."
+		;;
+	esac
+	
+}
+
+##
+## 1. "Someone depends on me"
+##
+checkDependentee() {
+	case "${1}" in
+		"${ZOOKEEPER_APP_NAME}")
+			isKafkaRunning; isAnyNpiRunning
+		;;
+		"${KAFKA_APP_NAME}")
+			isAnyNpiRunning
+		;;
+		"${HADOOP_APP_NAME}") 	
+			isAnyNpiRunning
+		;;
+		"${NPI_STORAGE_APP_NAME}" | "${NPI_ANALYTICS_APP_NAME}" | "${NPI_COLLECTOR_APP_NAME}" | "${NPI_UI_APP_NAME}" | "${NPI_APP_NAME}") ;;
+		*)
+			emergencyExit "1" "GYMPB0117E: Unable to resolve dependentee."
+		;;
+	esac
+	
+}

@@ -1,0 +1,258 @@
+#!/bin/bash
+
+defaultLog="GYMPB0107I Application name is missing / incorrect."
+
+##
+## For CMD "start"
+##
+startRoutine() {
+	case "${1}" in
+		"${ZOOKEEPER_APP_NAME}")
+			startZookeeper
+		;;
+		"${KAFKA_APP_NAME}")
+			startKafka
+		;;
+		"${HADOOP_APP_NAME}")
+			startHadoop
+		;;
+		"${NPI_APP_NAME}")
+			startNpiComponents
+		;;
+		"all")
+			startZookeeper; sleep ${SLEEP_TIME}
+			startKafka; sleep ${SLEEP_TIME}
+			startHadoop; sleep ${SLEEP_TIME}
+
+			startNpiComponents
+		;;
+		*)
+			startZookeeper; sleep ${SLEEP_TIME}
+			startKafka; sleep ${SLEEP_TIME}
+			startHadoop; sleep ${SLEEP_TIME}
+
+			startNpiComponents
+		;;
+	esac
+}
+
+##
+## For CMD "stop"
+##
+stopRountine() {
+	case "${1}" in 
+		"${ZOOKEEPER_APP_NAME}")
+			stopZookeeper
+		;;
+		"${KAFKA_APP_NAME}")
+			stopKafka
+		;;
+		"${HADOOP_APP_NAME}")
+			stopHadoop
+		;;
+		"${NPI_APP_NAME}")
+			stopNpi "npi"
+		;;
+		"all")
+			stopNpi "npi"; sleep ${SLEEP_TIME}
+			stopHadoop; sleep ${SLEEP_TIME}
+			stopKafka; sleep ${SLEEP_TIME}
+			stopZookeeper
+		;;
+		*)
+			log INFO ${defaultLog}; npidUsage
+		;;
+	esac
+}
+
+##
+## For CMD "restart"
+##
+restartRoutine() {
+	case "${1}" in 
+		"${ZOOKEEPER_APP_NAME}")
+			stopRountine ${ZOOKEEPER_APP_NAME}; sleep ${SLEEP_TIME}; startRoutine ${ZOOKEEPER_APP_NAME}
+		;;
+		"${KAFKA_APP_NAME}")
+			stopRountine ${KAFKA_APP_NAME}; sleep ${SLEEP_TIME}; startRoutine ${KAFKA_APP_NAME}
+		;;
+		"${HADOOP_APP_NAME}")
+			stopRountine ${HADOOP_APP_NAME}; sleep ${SLEEP_TIME}; startRoutine ${HADOOP_APP_NAME}
+		;;
+		"${NPI_APP_NAME}")
+			stopRountine ${NPI_APP_NAME}; sleep ${SLEEP_TIME}; startRoutine ${NPI_APP_NAME}
+		;;
+		"all")
+			stopRountine "all"; sleep ${SLEEP_TIME}; startRoutine "all"
+		;;
+		*)
+			log INFO ${defaultLog}; npidUsage
+		;;
+	esac
+}
+
+##
+## For CMD "kill"
+##
+killRoutineHelper() {
+	errors=0
+	pidStatus=`ps -ef | grep ${1} | grep -v grep`
+	if [ -z "${pidStatus}" ]; then
+		errors=$(( ${errors} + 1 ))
+	else
+		killAssociatively "-9" ${1}
+
+		tryCount=${TRY_COUNT}
+		isKilled=0
+
+		while [ $tryCount -ne 0 ]; do
+			psStatus=`ps -ef | grep ${pid} | grep -v grep`
+			if [ -z "${psStatus}" ]; then
+				isKilled=1; break
+			fi
+			sleep ${SLEEP_TIME}
+			tryCount=$(( ${tryCount} - 1 ))
+		done
+
+		if [ ${isKilled} -ne 1 ]; then
+			errors=$(( ${errors} + 1 ))
+		fi
+	fi
+
+	if [ ${errors} -eq 0 ]; then
+		echo 1
+	else
+		echo 0
+	fi
+}
+
+##
+## Usage: killPids <applicationName> <pidFile 1> <pidFile 2> ... <pidFile n>
+## PID files are all in var/*
+##
+killPids() {
+	appName=${1}
+	
+	pidFiles=()
+	shift # first shift
+	while [ ! -z "${1}" ]; do
+		pidFiles+=(${1})
+		shift
+	done
+	
+	if [ ${#pidFiles[@]} -eq 0 ]; then
+		log INFO "GYMPB0108I: `getReadableName ${appName}` not started."
+	else
+		successKill=0
+		nothingToKill=0
+		for pidFile in "${pidFiles[@]}"; do
+			if [ -f ${VAR_DIR}/${pidFile} ]; then
+				pid=`head -1 ${VAR_DIR}/${pidFile}`
+				killStatus=`killRoutineHelper ${pid}`
+				if [ ${killStatus} -eq 1 ]; then
+					successKill=$(( ${successKill} + 1 ))
+					rm ${pidFile}
+				else
+					log ERROR "GYMPB0120E: Unable to kill ${pid}."
+				fi
+			else 
+				nothingToKill=$(( ${nothingToKill} + 1 ))
+			fi
+		done
+
+		if [ ${successKill} -eq ${#pidFiles[@]} ] && [ ${nothingToKill} -eq 0 ]; then
+			log INFO "GYMPB0121I: `getReadableName ${appName}` killed."
+		elif [ ${nothingToKill} -eq ${#pidFiles[@]} ]; then
+			log INFO "GYMPB0108I: `getReadableName ${appName}` not started."
+		else
+			log ERROR "GYMPB0122E: `getReadableName ${appName}` not killed."
+		fi			
+	fi
+}
+
+killRoutine() {
+	case "${1}" in 
+		"${ZOOKEEPER_APP_NAME}") 
+			killPids ${ZOOKEEPER_APP_NAME} ${ZOOKEEPER_APP_NAME}.pid
+		;;
+		"${KAFKA_APP_NAME}") 
+			killPids ${KAFKA_APP_NAME} ${ZOOKEEPER_APP_NAME}.pid	 	
+		;;
+		"${HADOOP_APP_NAME}") 
+			killPids ${HADOOP_APP_NAME} `getHadoopPidFiles`
+ 		;;
+		"${NPI_APP_NAME}") 
+			killPids ${NPI_APP_NAME} `getNpiPidFiles`
+		;;
+		"all")
+			killPids ${NPI_APP_NAME} `getNpiPidFiles`; sleep ${SLEEP_TIME}
+			killPids ${HADOOP_APP_NAME} `getHadoopPidFiles`; sleep ${SLEEP_TIME}
+			killPids ${KAFKA_APP_NAME}; sleep ${SLEEP_TIME}
+			killPids ${ZOOKEEPER_APP_NAME}; sleep ${SLEEP_TIME}
+		;;
+		*)
+			log INFO ${defaultLog}; npidUsage
+		;;
+	esac
+}
+
+##
+## For CMD "status"
+##
+printZookeeperStatus() {
+	if [ `isZookeeperStarted` -eq 1 ]; then
+		log INFO "GYMPB0109I: ${ZOOKEEPER_READABLE} started."
+	else
+		log INFO "GYMPB0110I: ${ZOOKEEPER_READABLE} stopped."
+	fi
+}
+
+printKafkaStatus() {
+	if [ `isKafkaStarted` -eq 1 ]; then
+		log INFO "GYMPB0109I: ${KAFKA_READABLE} started."
+	else
+		log INFO "GYMPB0110I: ${KAFKA_READABLE} stopped."
+	fi
+}
+
+printHadoopStatus() {
+	if [ `isHadoopStarted` -eq 1 ]; then
+		log INFO "GYMPB0109I: ${HADOOP_READABLE} started."
+	else
+		log INFO "GYMPB0110I: ${HADOOP_READABLE} stopped."
+	fi
+}
+
+printNpiStatus() {
+	npiStatus=`getNpiStatus`
+	if [ ${npiStatus} -eq 0 ]; then
+		log INFO "GYMPB0110I: ${NPI_READABLE} stopped."
+	elif [ ${npiStatus} -eq 1 ]; then
+		log INFO "GYMPB0109I: ${NPI_READABLE} started."
+	elif [ ${npiStatus} -eq 2 ]; then
+		log INFO "GYMPB0123I: ${NPI_READABLE} partially started."
+	fi
+}
+
+statusRoutine() {
+	case "${1}" in
+		"${ZOOKEEPER_APP_NAME}") 
+			printZookeeperStatus
+		;;
+		"${KAFKA_APP_NAME}") 
+			printKafkaStatus		
+		;;
+		"${HADOOP_APP_NAME}") 
+			printHadoopStatus		
+		;;
+		"${NPI_APP_NAME}") 
+			printNpiStatus		
+		;;
+		"all")
+			printZookeeperStatus; printKafkaStatus; printHadoopStatus; printNpiStatus
+		;;
+		*)
+			log INFO ${defaultLog}; npidUsage;
+		;;
+	esac
+}

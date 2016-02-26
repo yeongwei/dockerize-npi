@@ -1,0 +1,260 @@
+#!/bin/bash
+
+##
+## Start Hadoop Name Node
+##
+nn_service() {
+	cmd=$1
+	NAMENODES=$(${HADOOP_PREFIX}/bin/hdfs getconf -namenodes)
+	
+	log DEBUG "GYMPB0126D: ${cmd} namenodes on [${NAMENODES}]"
+	
+	"${HADOOP_PREFIX}/sbin/hadoop-daemon.sh" \
+		--config "${HADOOP_CONF_DIR}" \
+		--hostnames "${NAMENODES}" \
+		--script "${HADOOP_PREFIX}/bin/hdfs" ${cmd} namenode 
+	  
+	SECONDARY_NAMENODES=$(${HADOOP_PREFIX}/bin/hdfs getconf -secondarynamenodes 2>/dev/null)
+	
+	if [ -n "${SECONDARY_NAMENODES}" ]; then
+		log DEBUG "GYMPB0127D: ${cmd} secondary namenodes [${SECONDARY_NAMENODES}]"
+	
+	  	"${HADOOP_PREFIX}/sbin/hadoop-daemon.sh" \
+			--config "${HADOOP_CONF_DIR}" \
+			--hostnames "${SECONDARY_NAMENODES}" \
+			--script "${HADOOP_PREFIX}/bin/hdfs" $cmd secondarynamenode
+	fi
+    
+    	"${HADOOP_PREFIX}"/sbin/yarn-daemon.sh --config ${HADOOP_CONF_DIR} ${cmd} resourcemanager	
+}
+
+##
+## Start Hadoop Data Node
+##
+dt_service() {
+	cmd=${1}
+	log DEBUG "GYMPB0128D: ${cmd} datanode"
+
+	"${HADOOP_PREFIX}/sbin/hadoop-daemon.sh" \
+		--config "${HADOOP_CONF_DIR}" \
+	    	--script "${HADOOP_PREFIX}/bin/hdfs" ${cmd} datanode
+
+	log DEBUG "GYMPB0129D: ${cmd} YARN nodemanager"
+
+	"${HADOOP_PREFIX}"/sbin/yarn-daemon.sh --config ${HADOOP_CONF_DIR} ${cmd} nodemanager
+}
+
+##
+## Facilitate files for Hadoop
+##
+copy_spark_jar_and_conf() {
+	log DEBUG "Checking if HDFS having live nodes"
+    while [ $($NPI_HOME/services/hadoop/bin/hdfs dfsadmin -report |grep -c "Live datanodes") -eq 0 ];do sleep 1;done
+    
+	log DEBUG "GYMPB0130D: Waiting for recovering from safemode"
+	$NPI_HOME/services/hadoop/bin/hdfs dfsadmin -safemode wait
+
+	log DEBUG "GYMPB0131D: Creating /work/hadoop-conf folder"
+	$NPI_HOME/services/hadoop/bin/hdfs dfs -mkdir -p /work/hadoop-conf
+
+	log DEBUG "GYMPB0132D: Copying hadoop config files to hdfs"
+	$NPI_HOME/services/hadoop/bin/hdfs dfs -copyFromLocal -f $NPI_HOME/services/hadoop/etc/hadoop/core-site.xml /work/hadoop-conf/core-site.xml
+	$NPI_HOME/services/hadoop/bin/hdfs dfs -copyFromLocal -f $NPI_HOME/services/hadoop/etc/hadoop/hdfs-site.xml /work/hadoop-conf/hdfs-site.xml
+	$NPI_HOME/services/hadoop/bin/hdfs dfs -copyFromLocal -f $NPI_HOME/services/hadoop/etc/hadoop/yarn-site.xml /work/hadoop-conf/yarn-site.xml
+	$NPI_HOME/services/hadoop/bin/hdfs dfs -copyFromLocal -f $NPI_HOME/services/conf/spark/spark-defaults.conf /work/hadoop-conf/spark-defaults.conf
+
+	log DEBUG "GYMPB0133D: Creating /work/spark-lib folder"
+	$NPI_HOME/services/hadoop/bin/hdfs dfs -mkdir -p /work/spark-lib
+
+	log DEBUG "GYMPB0134D: Copying spark assembly jar to hdfs"
+	$NPI_HOME/services/hadoop/bin/hdfs dfs -copyFromLocal -f $NPI_HOME/services/spark/lib/spark-assembly-*.jar /work/spark-lib/spark-assembly-hadoop.jar
+}
+
+##
+##
+## 
+initHadoopNameNode() {
+	if [ "${USER_CONFIG}" != "true" ]; then
+		if [ ! -z ${NAMENODE} ] && [ "${NAMENODE}" == "true" ]; then
+			export NAMENODE_HOST=${NAMENODE_HOST:-"hdfs://$(hostname):9000/"}
+	  		(cd ${NPI_HOME} && ./bin/initHadoopNamenode.sh ${NAMENODE_HOST})
+		elif [ ! -z $NAMENODE_HOST ]; then
+	  		(cd ${NPI_HOME} && ./bin/initHadoopNamenode.sh ${NAMENODE_HOST})	
+		fi
+	fi
+}
+
+##
+## Check Hadoop status via Resource Manager
+##
+isHadoopStarted() {
+	hadoopHost=`echo ${HADOOP_NAMENODE_URL} | sed 's/\/\///' | cut -d: -f2`
+	hadoopRmUrl="http://${hadoopHost}:${HADOOP_RM_PORT}/ws/v1/cluster/info"
+
+	status=""
+	gerpStr="\"state\":\"STARTED\""
+	if [ ! -z `which curl` ]; then
+		status=`curl -s ${hadoopRmUrl} | grep ${gerpStr}`
+	elif [ ! -z `which wget` ]; then
+		status=`wget -qO - ${hadoopRmUrl} | grep ${gerpStr}`
+	else 
+		emergencyExit "1" "GYMPB0135E: Either wget or curl must be installed."
+	fi
+
+	if [ -z "${status}" ]; then
+		echo 0
+	else
+		echo 1
+	fi
+}
+
+##
+## Check if Hadoop has really started
+##
+checkHadoop() {
+	isHadoopUp=0
+	tryCount=${TRY_COUNT}
+	
+	while [ ${tryCount} -ne 0 ]; do
+		status=`isHadoopStarted`
+		if [ ${status} -eq 1 ]; then
+			isHadoopUp=1; break
+		fi
+		sleep ${SLEEP_TIME}
+		tryCount=$(( ${tryCount} - 1 ))
+	done
+
+	if [ ${isHadoopUp} -eq 0 ]; then
+		emergencyExit "1"  "GYMPB0118E: Hadoop is not starting."
+	else
+		log INFO "GYMPB0109I: Hadoop started."
+	fi
+}
+
+##
+## Hadoop and Spark environment files
+##
+soureceHadoopEnv() {
+	source ${NPI_HOME}/services/hadoop/etc/hadoop/hadoop-env.sh
+
+	if [ -f ${NPI_HOME}/services/spark/conf/spark-env.sh ]; then
+		source ${NPI_HOME}/services/spark/conf/spark-env.sh
+	fi
+}
+
+##
+## Entry function to start Hadoop
+##
+startHadoop() {
+	emergencyExit `isHadoopStarted` "GYMPB0124E: ${HADOOP_READABLE} is already running."
+	
+	log INFO "GYMPB0112I: Starting ${HADOOP_READABLE}."
+	checkDependent ${HADOOP_APP_NAME}
+
+	initHadoopNameNode
+	soureceHadoopEnv
+
+	export PATH=$PATH:${HADOOP_HOME}/bin
+
+	if [ ! -z ${NAMENODE} ] && [ "${NAMENODE}" == "true" ]; then
+		if [ ! -d ${NPI_HOME}/work/dfs ]; then
+			log INFO "GYMPB0136I: Starting as NAMENODE and no HDFS found, formating new HDFS."
+			${NPI_HOME}/services/hadoop/bin/hdfs namenode -format
+		fi
+	
+		nn_service start
+
+		dt_service start
+
+		copy_spark_jar_and_conf
+	else
+		dt_service start
+	fi
+
+	checkHadoop
+}
+
+##
+## Get all PID files related to Hadoop
+##
+getHadoopPidFiles() {
+	# Sample Hadoop PID files
+	# var/yarn-sherpa-resourcemanager.pid
+	# var/yarn-sherpa-nodemanager.pid
+	# var/hadoop-sherpa-datanode.pid
+	# var/hadoop-sherpa-secondarynamenode.pid
+	# var/hadoop-sherpa-namenode.pid
+	hadoopPidFiles=("yarn-*-resourcemanager.pid" "yarn-*-nodemanager.pid" "hadoop-*-datanode.pid" "hadoop-*-secondarynamenode.pid" "hadoop-*-namenode.pid")
+
+	fileStr=""
+	for pidFile in "${hadoopPidFiles[@]}"; do
+		if [ -f ${VAR_DIR}/${pidFile} ]; then
+			fileStr="${fileStr} ${pidFile}"
+		fi
+	done
+
+	echo ${fileStr};
+}
+
+##
+## Retrieve the list of PIDs related to Hadoop services
+##
+getHadoopPids() {
+	hadoopPidFiles=(`getHadoopPidFiles`)
+	hadoopPids=""
+	for pidFile in "${hadoopPidFiles[@]}"; do
+		hadoopPids="${hadoopPids} `head -1 ${VAR_DIR}/$pidFile`"
+	done
+
+	echo ${hadoopPids};
+}
+
+##
+## Entry function to stop Hadoop
+##
+stopHadoop() {
+	log INFO "GYMPB0113I: Stopping ${HADOOP_READABLE}."
+	checkDependentee ${HADOOP_APP_NAME}
+
+	soureceHadoopEnv
+	
+	numberOfValidPidFiles=5
+	hadoopPidFiles=(`getHadoopPidFiles`)
+	hadoopPids=(`getHadoopPids`)
+
+	if [ ${#hadoopPidFiles[@]} -eq 5 ]; then
+		dt_service stop
+		if [ ! -z "${NAMENODE}" ]; then
+			nn_service stop
+		fi
+		
+		pidDownCount=0
+		for pid in "${hadoopPids[@]}"; do
+			tryCount=${TRY_COUNT}
+			isPidDown=0
+		
+			while [ $tryCount -ne 0 ]; do
+				psStatus=`ps -ef | grep ${pid} | grep -v grep`	
+				if [ -z "${psStatus}" ]; then
+					isPidDown=1; break
+				fi
+				sleep ${SLEEP_TIME}
+				tryCount=$(( ${tryCount} - 1 ))
+			done
+
+			if [ ${isPidDown} -eq 1 ]; then
+				pidDownCount=$(( ${pidDownCount} + 1 ))
+			fi
+		done
+
+		if [ ${pidDownCount} -eq ${numberOfValidPidFiles} ]; then
+			log INFO "GYMPB0110I: ${HADOOP_READABLE} stopped."
+		else
+			log ERROR "GYMPB0114E: ${HADOOP_READABLE} not stopping."
+		fi
+	elif [ ${#hadoopPidFiles[@]} -eq 0 ]; then
+		log INFO "GYMPB0108I: ${HADOOP_READABLE} not started."
+	else		
+		emergencyExit "1" "GYMPB0123E: ${HADOOP_READABLE} partially started."
+	fi
+}

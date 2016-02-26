@@ -1,0 +1,178 @@
+#!/bin/sh
+#/*--------------------------------------------------------------------------
+# * Licensed Materials - Property of IBM
+# * 5724-P55, 5724-P57, 5724-P58, 5724-P59
+# * Copyright IBM Corporation 2007. All Rights Reserved.
+# * US Government Users Restricted Rights- Use, duplication or disclosure
+# * restricted by GSA ADP Schedule Contract with IBM Corp.
+# *--------------------------------------------------------------------------*/
+
+SCRIPT=$0
+if [ "`echo $0 | cut -c1`" = "." ]; then
+   SCRIPT="`pwd`/`echo "$0" | sed 's/\.\///g'`"
+elif [ "`echo $0 | cut -c1`" != "/" ]; then
+   SCRIPT="`pwd`/$0"
+fi
+
+BIN_DIR=`dirname $SCRIPT`
+PROG_HOME=`dirname $BIN_DIR`
+
+if [ -z "$PROG_HOME" ] ; then
+  ## resolve links - $0 may be a link to PROG_HOME
+  PRG="$0"
+
+  # need this for relative symlinks
+  while [ -h "$PRG" ] ; do
+    ls=`ls -ld "$PRG"`
+    link=`expr "$ls" : '.*-> \(.*\)$'`
+    if expr "$link" : '/.*' > /dev/null; then
+      PRG="$link"
+    else
+      PRG="`dirname "$PRG"`/$link"
+    fi
+  done
+
+  saveddir=`pwd`
+
+  PROG_HOME=`dirname "$PRG"`/..
+
+  # make it fully qualified
+  PROG_HOME=`cd "$PROG_HOME" && pwd`
+
+  cd "$saveddir"
+fi
+
+
+cygwin=false
+mingw=false
+darwin=false
+case "`uname`" in
+  CYGWIN*) cygwin=true
+          ;;
+  MINGW*) mingw=true
+          ;;
+  Darwin*) darwin=true
+           if [ -z "$JAVA_VERSION" ] ; then
+             JAVA_VERSION="CurrentJDK"
+           else
+            echo "Using Java version: $JAVA_VERSION" 1>&2
+           fi
+           if [ -z "$JAVA_HOME" ] ; then
+             JAVA_HOME=/System/Library/Frameworks/JavaVM.framework/Versions/${JAVA_VERSION}/Home
+           fi
+           JVM_OPT="$JVM_OPT -Xdock:name=${PROG_NAME} -Xdock:icon=$PROG_HOME/icon-mac.png -Dapple.laf.useScreenMenuBar=true"
+           JAVACMD="`which java`"
+           ;;
+esac
+
+ibmJRE="ibm-java-jre-8.0-1.10-linux-x86_64.tgz"
+if [ -n "$PROG_HOME" ]
+then
+  if [ -d "${PROG_HOME}/resources/jre/RHEL/ibm-java-x86_64-80/jre" ]
+  then
+    JAVA_HOME=$PROG_HOME/resources/jre/RHEL/ibm-java-x86_64-80/jre
+    export JAVA_HOME
+  else
+    if [ -f "${PROG_HOME}/resources/jre/RHEL/${ibmJRE}" ]
+    then
+      saveddir=`pwd`
+      cd "$PROG_HOME/resources/jre/RHEL"
+      tar -xf ${ibmJRE}
+      JAVA_HOME=$PROG_HOME/resources/jre/RHEL/ibm-java-x86_64-80/jre
+      export JAVA_HOME
+      cd "$saveddir"
+    else
+      echo "IBM JRE shipped with the product won't be used"
+    fi
+  fi
+fi
+
+# Resolve JAVA_HOME from javac command path
+if [ -z "$JAVA_HOME" ]; then
+  javaExecutable="`which javac`"
+  if [ -n "$javaExecutable" -a ! "`expr \"$javaExecutable\" : '\([^ ]*\)'`" = "no" ]; then
+    # readlink(1) is not available as standard on Solaris 10.
+    readLink=`which readlink`
+    if [ ! `expr "$readLink" : '\([^ ]*\)'` = "no" ]; then
+      javaExecutable="`readlink -f \"$javaExecutable\"`"
+      javaHome="`dirname \"$javaExecutable\"`"
+      javaHome=`expr "$javaHome" : '\(.*\)/bin'`
+      JAVA_HOME="$javaHome"
+      export JAVA_HOME
+    fi
+  fi
+fi
+
+
+if [ -z "$JAVACMD" ] ; then
+  if [ -n "$JAVA_HOME"  ] ; then
+    if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
+      # IBM's JDK on AIX uses strange locations for the executables
+      JAVACMD="$JAVA_HOME/jre/sh/java"
+    else
+      JAVACMD="$JAVA_HOME/bin/java"
+    fi
+  else
+    JAVACMD="`which java`"
+  fi
+fi
+
+if [ ! -x "$JAVACMD" ] ; then
+  echo "GYMPB0001E: Error: JAVA_HOME is not defined correctly. Cannot execute $JAVACMD" >&2
+  exit 1
+fi
+
+if [ -z "$JAVA_HOME" ] ; then
+  echo "GYMPB0002W: Warning: JAVA_HOME environment variable is not set." >&2
+fi
+
+CLASSPATH_SUFFIX=""
+# Path separator used in EXTRA_CLASSPATH
+PSEP=":"
+
+# For Cygwin, switch paths to Windows-mixed format before running java
+if $cygwin; then
+  [ -n "$PROG_HOME" ] &&
+    PROG_HOME=`cygpath -am "$PROG_HOME"`
+  [ -n "$JAVA_HOME" ] &&
+    JAVA_HOME=`cygpath -am "$JAVA_HOME"`
+  CLASSPATH_SUFFIX=";"
+  PSEP=";"
+fi
+
+# For Migwn, ensure paths are in UNIX format before anything is touched
+if $mingw ; then
+  [ -n "$PROG_HOME" ] &&
+    PROG_HOME="`(cd "$PROG_HOME"; pwd)`"
+  [ -n "$JAVA_HOME" ] &&
+    JAVA_HOME="`(cd "$JAVA_HOME"; pwd)`"
+  CLASSPATH_SUFFIX=";"
+  PSEP=";"
+fi
+
+# find total physical memory, set max heap size to 1/4
+MEM_TOTAL=`cat /proc/meminfo | grep MemTotal | awk '{print $2}'`
+MEM_XMX=`expr ${MEM_TOTAL} / 4 / 1000`
+
+VAR_DIR=$PROG_HOME/var
+mkdir -p $VAR_DIR
+cd ${PROG_HOME}
+
+PROG_NAME=flow-blaster
+PROG_VERSION=1.2.0.0
+
+if [ -f conf/security/WebSphereCACert.pem ]; then
+	$JAVA_HOME/bin/keytool -import -noprompt -alias WebSphereCACert -keypass changeit -keystore $JAVA_HOME/lib/security/cacerts -storepass changeit -file conf/security/WebSphereCACert.pem > /dev/null 2>&1 
+fi
+
+  exec "$JAVACMD" \
+     ${JVM_OPT} \
+     -Dprog.name="${PROG_NAME}" \
+     -Xmx${MEM_XMX}M \
+      \
+     -cp "${PROG_HOME}/lib/npi_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-common_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-analytics_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-extension_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-platform_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-thirdparty-ibm-ess_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-storage_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-storage-jdbc_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-thirdparty-apache-parquet_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-techpack-flow_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-techpack_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-collector_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-storage-spark_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-tools_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/com-ibm-csi-npm-ui_2.11-1.2.0.0.jar${PSEP}${PROG_HOME}/lib/scala-reflect-2.11.7.jar${PSEP}${PROG_HOME}/lib/guava-18.0.jar${PSEP}${PROG_HOME}/lib/jackson-mapper-asl-1.9.11.jar${PSEP}${PROG_HOME}/lib/jsr311-api-1.1.1.jar${PSEP}${PROG_HOME}/lib/metrics-core-2.2.0.jar${PSEP}${PROG_HOME}/lib/scala-xml_2.11-1.0.5.jar${PSEP}${PROG_HOME}/lib/janino-2.7.6.jar${PSEP}${PROG_HOME}/lib/jetty-security-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/kafka_2.11-0.9.0.0.jar${PSEP}${PROG_HOME}/lib/pentaho-aggdesigner-algorithm-5.1.5-jhyde.jar${PSEP}${PROG_HOME}/lib/commons-lang3-3.4.jar${PSEP}${PROG_HOME}/lib/akka-agent_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/scala-parser-combinators_2.11-1.0.4.jar${PSEP}${PROG_HOME}/lib/calcite-avatica-server-1.5.0.jar${PSEP}${PROG_HOME}/lib/javax.servlet.jsp-api-2.3.1.jar${PSEP}${PROG_HOME}/lib/akka-kryo-serialization_2.11-0.3.2.jar${PSEP}${PROG_HOME}/lib/commons-beanutils-1.7.0.jar${PSEP}${PROG_HOME}/lib/opencsv-2.3.jar${PSEP}${PROG_HOME}/lib/javax.el-3.0.0.jar${PSEP}${PROG_HOME}/lib/db2jcc-3.63.123.jar${PSEP}${PROG_HOME}/lib/kafka-clients-0.9.0.0.jar${PSEP}${PROG_HOME}/lib/akka-cluster_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/hadoop-hdfs-2.7.1.jar${PSEP}${PROG_HOME}/lib/concurrentlinkedhashmap-lru-1.4.jar${PSEP}${PROG_HOME}/lib/config-1.3.0.jar${PSEP}${PROG_HOME}/lib/metrics-ganglia-3.1.2.jar${PSEP}${PROG_HOME}/lib/akka-persistence_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/jetty-server-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/jetty-io-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/commons-codec-1.10.jar${PSEP}${PROG_HOME}/lib/parquet-encoding-1.8.1.jar${PSEP}${PROG_HOME}/lib/log4j-1.2.14.jar${PSEP}${PROG_HOME}/lib/chill-java-0.5.0.jar${PSEP}${PROG_HOME}/lib/jetty-jaspi-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/jetty-xml-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/xbean-asm5-shaded-4.4.jar${PSEP}${PROG_HOME}/lib/javax-websocket-client-impl-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/jetty-jaas-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/json4s-ast_2.11-3.2.10.jar${PSEP}${PROG_HOME}/lib/netty-3.10.3.Final.jar${PSEP}${PROG_HOME}/lib/jline-0.9.94.jar${PSEP}${PROG_HOME}/lib/websocket-api-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/commons-lang-2.4.jar${PSEP}${PROG_HOME}/lib/slf4j-api-1.7.12.jar${PSEP}${PROG_HOME}/lib/commons-cli-1.2.jar${PSEP}${PROG_HOME}/lib/apache-jstl-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/mesos-0.21.1-shaded-protobuf.jar${PSEP}${PROG_HOME}/lib/jackson-annotations-2.5.3.jar${PSEP}${PROG_HOME}/lib/commons-configuration-1.6.jar${PSEP}${PROG_HOME}/lib/spark-network-shuffle_2.11-1.6.0.jar${PSEP}${PROG_HOME}/lib/zookeeper-3.4.6.jar${PSEP}${PROG_HOME}/lib/hadoop-mapreduce-client-core-2.7.1.jar${PSEP}${PROG_HOME}/lib/htrace-core-3.1.0-incubating.jar${PSEP}${PROG_HOME}/lib/hadoop-auth-2.7.1.jar${PSEP}${PROG_HOME}/lib/jetty-servlet-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/akka-http-spray-json-experimental_2.11-1.0.jar${PSEP}${PROG_HOME}/lib/reactive-streams-1.0.0.jar${PSEP}${PROG_HOME}/lib/calcite-linq4j-1.5.0.jar${PSEP}${PROG_HOME}/lib/commons-pool-1.5.4.jar${PSEP}${PROG_HOME}/lib/akka-actor_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/jetty-proxy-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/jetty-servlets-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/metrics-json-3.1.2.jar${PSEP}${PROG_HOME}/lib/javax.servlet.jsp.jstl-1.2.2.jar${PSEP}${PROG_HOME}/lib/minlog-1.2.jar${PSEP}${PROG_HOME}/lib/websocket-server-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/akka-protobuf_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/metrics-core-3.1.2.jar${PSEP}${PROG_HOME}/lib/db2jcc_license_cu-3.63.123.jar${PSEP}${PROG_HOME}/lib/parquet-hadoop-1.8.1.jar${PSEP}${PROG_HOME}/lib/hadoop-yarn-server-web-proxy-2.7.1.jar${PSEP}${PROG_HOME}/lib/parquet-format-2.3.0-incubating.jar${PSEP}${PROG_HOME}/lib/calcite-avatica-1.5.0.jar${PSEP}${PROG_HOME}/lib/jetty-webapp-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/curator-recipes-2.5.0.jar${PSEP}${PROG_HOME}/lib/parboiled_2.11-2.1.0.jar${PSEP}${PROG_HOME}/lib/snmp4j-2.3.4.jar${PSEP}${PROG_HOME}/lib/eigenbase-properties-1.1.5.jar${PSEP}${PROG_HOME}/lib/hadoop-common-2.7.1.jar${PSEP}${PROG_HOME}/lib/jetty-client-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/spark-yarn_2.11-1.6.0.jar${PSEP}${PROG_HOME}/lib/kryo-2.24.0.jar${PSEP}${PROG_HOME}/lib/jetty-http-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/calcite-example-csv-1.5.0.jar${PSEP}${PROG_HOME}/lib/jackson-core-asl-1.9.11.jar${PSEP}${PROG_HOME}/lib/commons-compiler-2.7.6.jar${PSEP}${PROG_HOME}/lib/json4s-jackson_2.11-3.2.10.jar${PSEP}${PROG_HOME}/lib/stamina-core_2.11-0.1.0.jar${PSEP}${PROG_HOME}/lib/akka-cluster-tools_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/spark-catalyst_2.11-1.6.0.jar${PSEP}${PROG_HOME}/lib/websocket-common-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/shapeless_2.11-2.1.0.jar${PSEP}${PROG_HOME}/lib/akka-parsing-experimental_2.11-1.0.jar${PSEP}${PROG_HOME}/lib/hadoop-mapreduce-client-common-2.7.1.jar${PSEP}${PROG_HOME}/lib/logback-core-1.1.2.jar${PSEP}${PROG_HOME}/lib/javax.inject-1.jar${PSEP}${PROG_HOME}/lib/jetty-quickstart-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/jul-to-slf4j-1.7.12.jar${PSEP}${PROG_HOME}/lib/snappy-java-1.1.1.6.jar${PSEP}${PROG_HOME}/lib/org.eclipse.jdt.core-3.8.2.v20120814-155456.jar${PSEP}${PROG_HOME}/lib/scala-stm_2.11-0.7.jar${PSEP}${PROG_HOME}/lib/paranamer-2.6.jar${PSEP}${PROG_HOME}/lib/objenesis-2.1.jar${PSEP}${PROG_HOME}/lib/netty-all-4.0.29.Final.jar${PSEP}${PROG_HOME}/lib/commons-digester-1.8.jar${PSEP}${PROG_HOME}/lib/avro-1.7.7.jar${PSEP}${PROG_HOME}/lib/commons-dbcp-1.4.jar${PSEP}${PROG_HOME}/lib/javax.websocket-api-1.0.jar${PSEP}${PROG_HOME}/lib/jetty-alpn-client-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/jetty-plus-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/protobuf-java-3.0.0-beta-1.jar${PSEP}${PROG_HOME}/lib/lz4-1.2.0.jar${PSEP}${PROG_HOME}/lib/parquet-tools-1.8.1.jar${PSEP}${PROG_HOME}/lib/json4s-core_2.11-3.2.10.jar${PSEP}${PROG_HOME}/lib/hadoop-yarn-common-2.7.1.jar${PSEP}${PROG_HOME}/lib/calcite-core-1.5.0.jar${PSEP}${PROG_HOME}/lib/sigar-loader-1.6.6-rev002.jar${PSEP}${PROG_HOME}/lib/spark-network-common_2.11-1.6.0.jar${PSEP}${PROG_HOME}/lib/jackson-module-scala_2.11-2.5.3.jar${PSEP}${PROG_HOME}/lib/curator-framework-2.5.0.jar${PSEP}${PROG_HOME}/lib/akka-persistence-kafka_2.11-0.5.1-SNAPSHOT.jar${PSEP}${PROG_HOME}/lib/jetty-jndi-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/akka-contrib_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/spray-caching-1.3.1.jar${PSEP}${PROG_HOME}/lib/commons-beanutils-core-1.8.0.jar${PSEP}${PROG_HOME}/lib/akka-stream-experimental_2.11-1.0.jar${PSEP}${PROG_HOME}/lib/jsr305-3.0.0.jar${PSEP}${PROG_HOME}/lib/metrics-jvm-3.1.2.jar${PSEP}${PROG_HOME}/lib/dnsjava-2.1.7.jar${PSEP}${PROG_HOME}/lib/jetty-deploy-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/akka-http-experimental_2.11-1.0.jar${PSEP}${PROG_HOME}/lib/hadoop-yarn-api-2.7.1.jar${PSEP}${PROG_HOME}/lib/spark-unsafe_2.11-1.6.0.jar${PSEP}${PROG_HOME}/lib/websocket-client-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/akka-slf4j_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/uncommons-maths-1.2.2a.jar${PSEP}${PROG_HOME}/lib/hadoop-yarn-client-2.7.1.jar${PSEP}${PROG_HOME}/lib/akka-zk-cluster-seed_2.11-0.1.2.jar${PSEP}${PROG_HOME}/lib/metrics-graphite-3.1.2.jar${PSEP}${PROG_HOME}/lib/parquet-jackson-1.8.1.jar${PSEP}${PROG_HOME}/lib/jetty-annotations-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/logback-classic-1.1.2.jar${PSEP}${PROG_HOME}/lib/ojdbc6-11gR2.jar${PSEP}${PROG_HOME}/lib/jetty-util-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/jetty-schemas-3.1.M0.jar${PSEP}${PROG_HOME}/lib/jetty-rewrite-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/spark-core_2.11-1.6.0.jar${PSEP}${PROG_HOME}/lib/akka-remote_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/akka-http-core-experimental_2.11-1.0.jar${PSEP}${PROG_HOME}/lib/javax-websocket-server-impl-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/akka-cluster-metrics_2.11-2.4.0.jar${PSEP}${PROG_HOME}/lib/hadoop-2.7.1.jar${PSEP}${PROG_HOME}/lib/jersey-server-1.9.jar${PSEP}${PROG_HOME}/lib/akka-kernel_2.11-2.3.3.jar${PSEP}${PROG_HOME}/lib/spray-json_2.11-1.3.2.jar${PSEP}${PROG_HOME}/lib/javax.servlet.jsp-2.3.2.jar${PSEP}${PROG_HOME}/lib/jetty-jmx-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/javax.servlet-api-3.1.0.jar${PSEP}${PROG_HOME}/lib/curator-client-2.5.0.jar${PSEP}${PROG_HOME}/lib/jetty-jsp-jdt-2.3.3.jar${PSEP}${PROG_HOME}/lib/spark-launcher_2.11-1.6.0.jar${PSEP}${PROG_HOME}/lib/jackson-core-2.5.3.jar${PSEP}${PROG_HOME}/lib/scala-library-2.11.7.jar${PSEP}${PROG_HOME}/lib/jopt-simple-3.2.jar${PSEP}${PROG_HOME}/lib/chill_2.11-0.5.0.jar${PSEP}${PROG_HOME}/lib/websocket-servlet-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/stamina-json_2.11-0.1.0.jar${PSEP}${PROG_HOME}/lib/jackson-databind-2.5.3.jar${PSEP}${PROG_HOME}/lib/spray-util-1.3.1.jar${PSEP}${PROG_HOME}/lib/commons-collections-3.2.1.jar${PSEP}${PROG_HOME}/lib/commons-io-2.4.jar${PSEP}${PROG_HOME}/lib/spark-sql_2.11-1.6.0.jar${PSEP}${PROG_HOME}/lib/commons-logging-1.1.3.jar${PSEP}${PROG_HOME}/lib/parquet-column-1.8.1.jar${PSEP}${PROG_HOME}/lib/zkclient-0.7.jar${PSEP}${PROG_HOME}/lib/jetty-alpn-server-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/parquet-common-1.8.1.jar${PSEP}${PROG_HOME}/lib/jetty-continuation-9.2.2.v20140723.jar${PSEP}${PROG_HOME}/lib/commons-discovery-0.2.jar${PSEP}${PROG_HOME}/lib/ibmstsclient.jar${PSEP}${PROG_HOME}/lib/wstx-asl-3.0.0.jar${PSEP}${PROG_HOME}/lib/wsdl4j-1.5.1.jar${PSEP}${PROG_HOME}/lib/axiom-api-1.2.2.jar${PSEP}${PROG_HOME}/lib/IBMESSClientRP.jar${PSEP}${PROG_HOME}/lib/xmlsec-1.4.0.jar${PSEP}${PROG_HOME}/lib/axiom-impl-1.2.2.jar${PSEP}${PROG_HOME}/lib/mail-1.4.jar${PSEP}${PROG_HOME}/lib/cli.jar${PSEP}${PROG_HOME}/lib/IBMESSClientAuthn.jar${PSEP}${PROG_HOME}/lib/axis-1.4.jar${PSEP}${PROG_HOME}/lib/stax-api-1.0.1.jar${PSEP}${PROG_HOME}/lib/IBMESSClientExamp.jar${PSEP}${PROG_HOME}/lib/log4j-1.2.13.jar${PSEP}${PROG_HOME}/lib/dom4j-1.6.1.jar${PSEP}${PROG_HOME}/lib/jaxrpc.jar${PSEP}${PROG_HOME}/lib/activation-1.1.jar${PSEP}${PROG_HOME}/lib/xalan.jar${PSEP}${PROG_HOME}/lib/jaxen-1.1-beta-12.jar${PSEP}${PROG_HOME}/lib/saaj.jar${PSEP}${PROG_HOME}/lib/serializer.jar${PSEP}${PROG_HOME}/lib/IBMESSAuthnAudit.jar${PSEP}${PROG_HOME}/lib/JSON4J.jar${PSEP}${PROG_HOME}/lib/commons-httpclient-3.0-rc2.jar${PSEP}${PROG_HOME}/lib/tnpm-jdbc.jar${PSEP}${CLASSPATH_SUFFIX}" \
+     -Dprog.home="${PROG_HOME}" \
+     -Dprog.version="${PROG_VERSION}" \
+     -Djava.library.path="${PROG_HOME}/native" \
+     -Dfile.encoding=utf8 \
+     com.ibm.csi.npm.tools.flow.FlowBlaster $@

@@ -1,0 +1,156 @@
+#!/bin/bash
+
+CURRENTUSER=`id -un`
+DEBUG=${DEBUG:-0}
+
+SCRIPT=$0
+# Routine below facilitates the full qualified paths
+if [ "`echo $0 | cut -c1`" = "." ]; then
+   SCRIPT="`pwd`/`echo "$0" | sed 's/\.\///g'`"
+elif [ "`echo $0 | cut -c1`" != "/" ]; then
+   SCRIPT="`pwd`/$0"
+fi
+
+BIN_DIR=`dirname $SCRIPT`
+PROG_DNAME=`basename $SCRIPT`
+PROG_NAME=`echo $PROG_DNAME | sed s/.$//`
+PROG_NAME2=`echo $PROG_NAME | sed s/d$//` # The correct product name
+PROG_HOME=`dirname $BIN_DIR`
+PROG_VERSION=`cat $BIN_DIR/$PROG_NAME2 | grep ^PROG_VERSION= | awk -F"=" '{print $2}'`
+
+if [ -z "$PROG_HOME" ] ; then
+  ## resolve links - $0 may be a link to PROG_HOME
+  PRG="$0"
+
+  # need this for relative symlinks
+  while [ -h "$PRG" ] ; do
+    ls=`ls -ld "$PRG"`
+    link=`expr "$ls" : '.*-> \(.*\)$'`
+    if expr "$link" : '/.*' > /dev/null; then
+      PRG="$link"
+    else
+      PRG="`dirname "$PRG"`/$link"
+    fi
+  done
+
+  saveddir=`pwd`
+
+  PROG_HOME=`dirname "$PRG"`/..
+  # make it fully qualified
+  PROG_HOME=`cd "$PROG_HOME" && pwd`
+
+  cd "$saveddir"
+fi
+
+# Application names
+ZOOKEEPER_APP_NAME="zookeeper"
+KAFKA_APP_NAME="kafka"
+HADOOP_APP_NAME="hadoop"
+NPI_APP_NAME="npi"
+NPI_STORAGE_APP_NAME="storage"
+NPI_ANALYTICS_APP_NAME="analytics"
+NPI_COLLECTOR_APP_NAME="collector"
+NPI_UI_APP_NAME="ui"
+
+# Readable name
+ZOOKEEPER_READABLE="Zookeeper"
+KAFKA_READABLE="Kafka"
+HADOOP_READABLE="Hadoop"
+NPI_READABLE="NPI"
+NPI_STORAGE_READABLE="Storage"
+NPI_ANALYTICS_READABLE="Analytics"
+NPI_COLLECTOR_READABLE="Collector"
+NPI_UI_READABLE="UI"
+
+TRY_COUNT=12
+SLEEP_TIME=10
+SH_SHELL=`which sh`
+BASH_SHELL=`which bash`
+
+SERVICES_DIR=${PROG_HOME}/services
+SCRIPTS_DIR=${BIN_DIR}/scripts
+LOG_DIR=${PROG_HOME}/log
+VAR_DIR=${PROG_HOME}/var
+
+export NPI_HOME=${PROG_HOME}
+		
+ENV_FILE="npi_env.sh"
+source ${BIN_DIR}/${ENV_FILE}
+
+CONSOLE_LOG=${LOG_DIR}/${PROG_DNAME}.log
+HADOOP_LOG=${LOG_DIR}/${HADOOP_APP_NAME}.log
+KAFKA_LOG=${LOG_DIR}/${KAFKA_APP_NAME}.log
+NPI_LOG=${LOG_DIR}/${NPI_APP_NAME}.log
+ZOOKEEPER_LOG=${LOG_DIR}/${ZOOKEEPER_APP_NAME}.log
+
+source ${SCRIPTS_DIR}/common
+source ${SCRIPTS_DIR}/dependencies
+source ${SCRIPTS_DIR}/zookeeperFunctions
+source ${SCRIPTS_DIR}/kafkaFunctions
+source ${SCRIPTS_DIR}/hadoopFunctions
+source ${SCRIPTS_DIR}/npiFunctions
+source ${SCRIPTS_DIR}/command
+
+if [ ! -d "${LOG_DIR}" ]; then
+  mkdir -p ${LOG_DIR}
+  if [ "$?" != 0 ]; then
+    log ERROR "GYMPB0100E: Create directory $LOG_DIR failed!  Check permissions on parent directory."
+    exit 1
+  fi
+fi
+
+if [ ! -d "${VAR_DIR}" ]; then
+  mkdir -p ${VAR_DIR}
+  if [ "$?" != 0 ]; then
+    log ERROR "GYMPB0101E: Create directory $VAR_DIR failed! Check permissions on parent directory."
+    exit 1
+  fi
+fi
+
+## =========================================================
+## Main ====================================================
+## =========================================================
+
+IGNORESYSCHECK="N"
+if [ "${1}" == "-ignoresyscheck" ]; then
+  export IGNORESYSCHECK="Y"
+  shift
+fi
+ARG1=$1
+shift
+ARG2=$1
+
+if [ -z "${ARG1}" ]; then
+	log ERROR "GYMPB0106E: Not enough arguments."
+	npidUsage
+	exit 1
+fi
+
+case "${ARG1}" in
+	start)
+		startRoutine ${ARG2}
+	;;
+	stop)
+		stopRountine ${ARG2}
+	;;
+	restart)
+		restartRoutine ${ARG2}
+	;;
+	kill)
+		killRoutine ${ARG2}
+	;;
+	status)
+		statusRoutine ${ARG2}
+	;;
+	version)
+		showVersion
+	;;
+	help)
+		npidUsage
+	;;
+	*)
+		npidUsage
+	;;
+esac
+
+exit 0

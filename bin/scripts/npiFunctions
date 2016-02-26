@@ -1,0 +1,245 @@
+#!/bin/bash
+
+# check ulimit parameters
+check_ulimit_param() {
+  parameter=$1
+  name=$2
+  minvalue=$3
+  currentulimitvalue=`ulimit ${parameter}`
+  if [ ${currentulimitvalue} -lt ${minvalue} ]; then
+     #attempt to set ulimit
+     local sout
+     sout=$(ulimit -S ${parameter} ${minvalue} 2>&1)
+     if [ "$?" != 0 ]; then
+        log WARN "GYMPB0103W: ulimit parameter ${parameter} (${name}) is less than minimum value ${minvalue}! Fix by adding two lines to /etc/security/limits.conf: \"${USER} hard nofile ${minvalue}\" and \"${USER} soft nofile ${minvalue}\" and then log out the ${USER} user and log back in for the changes to take effect."
+        log WARN "GYMPB0104W: Standard error from ulimit command is \"${sout}\""
+     fi
+  fi
+}
+
+# test UDP tuning parameters
+check_sysctl_param() {
+  parameter=$1
+  minvalue=$2
+  currentvalue=`/sbin/sysctl ${parameter} | awk -F'= ' '{print $2}'`
+  if [ ${currentvalue} -lt ${minvalue} ]; then
+    if [ "${ROOT}" = "YES" ]; then
+       sysctl ${parameter}=${minvalue}
+    else
+       log ERROR "GYMPB0105E: sysctl parameter ${parameter}=${currentvalue} is less than required value ${minvalue}! Fix by adding \"${parameter}=${minvalue}\" to /etc/sysctl.conf and running sysctl -p as root. Alternatively, run ${PROG_NAME} as root."
+       ERRORS=$(($ERRORS + 1))
+    fi
+  fi
+}
+
+check_parameters() {
+  ERRORS=0
+  # check if root
+  if [ "${USER}" = "root" ]; then ROOT=YES; fi
+
+  if [ "${IGNORESYSCHECK}" != "Y" ]; then
+    check_ulimit_param "-n" "open files" 8096
+    check_sysctl_param net.core.rmem_default 33554432
+    check_sysctl_param net.core.rmem_max 33554432
+    check_sysctl_param net.core.netdev_max_backlog 10000
+    if [ "${ERRORS}" != "0" ]; then
+      log ERROR "GYMPB0106E: Another kernel parameter error is fatal. Exiting. Check ${CONSOLE_LOG} for GYMPB0105E errors."
+      exit 1
+    fi
+  fi
+}
+
+##
+## Usage: getPortResolution <default_port> <component_name> 
+##
+getPortResolution() {
+	defaultPort=${1}
+	componentName=${2}
+
+	case "${componentName}" in 
+		"${NPI_STORAGE_APP_NAME}") 	
+			echo $(( $defaultPort + 10 ))
+		;;
+		"${NPI_ANALYTICS_APP_NAME}") 
+			echo $(( $defaultPort + 20 ))
+		;;
+		"${NPI_COLLECTOR_APP_NAME}") 
+			echo $(( $defaultPort + 30 ))
+		;;
+		"${NPI_UI_APP_NAME}") 
+			echo $defaultPort
+		;;
+		"${NPI_APP_NAME}")
+			echo $defaultPort
+		;;
+		*)
+			emergencyExit "1" "GYMPB0000E: Port resolution failed due to invalid NPI component name."
+		;;
+	esac
+}
+
+##
+## Expected arguments: "storage, analytics, collector, ui"
+##
+startNpi() {
+	status=`isPidValid ${1}`
+	### This is not relevant, let code continue to go through
+	emergencyExit ${status} "GYMPB0124E: ${NPI_READABLE} component is already running."	
+
+	log INFO "GYMPB0112I: Starting `getReadableName ${1}`"
+	checkDependent ${NPI_APP_NAME}	
+
+	check_parameters
+
+	if [ -z "${1}" ]; then	
+		emergencyExit "1" "GYMPB0137E: Please provide a ${NPI_APP_NAME} component name."
+	fi 	
+	
+	componentStatus=`isNpiComponent ${1}`
+	if [ ${componentStatus} -ne 1 ]; then
+		emergencyExit "1" "GYMPB0138E: Please provide a valid ${NPI_APP_NAME} component name."
+	fi
+	
+	COMPONENT=${1}
+	if [ ${COMPONENT} == "${NPI_APP_NAME}" ]; then
+		COMPONENT=""
+	fi
+
+	WEB_PORT=`getPortResolution 8081 ${COMPONENT}`
+	log DEBUG "GYMPB0139D: Http Port is ${WEB_PORT}."
+
+	WEB_SEC_PORT=`getPortResolution 9443 ${COMPONENT}`
+	log DEBUG "GYMPB0139D: Https Port is ${WEB_SEC_PORT}."
+
+	JMX_PORT=`getPortResolution 9010 ${COMPONENT}`
+	log DEBUG "GYMPB0139D: Jmx Port is ${JMX_PORT}."
+
+	AKKA_CLUSTER_PORT=`getPortResolution 2552 ${COMPONENT}`
+	log DEBUG "GYMPB0139D: Akka Cluster Port is ${AKKA_CLUSTER_PORT}."
+
+	COMPONENT_OPT=""
+	JVM_OPT="${JVM_OPT} -Dhttp.port=${WEB_PORT} -Dhttps.port=${WEB_SEC_PORT} -Djmx.port=${JMX_PORT} -Dakka.remote.netty.tcp.port=${AKKA_CLUSTER_PORT} -Dakka.remote.netty.tcp.bind-port=${AKKA_CLUSTER_PORT}"
+
+	if [ ! -z $STORAGE_URL ];then
+	  JVM_OPT="${JVM_OPT} -Dstorage.uri=${STORAGE_URL}"
+	fi
+
+	if [ ! -z $ZK_URL ];then
+	  JVM_OPT="${JVM_OPT} -Dakka.cluster.seed.zookeeper.url=${ZK_URL} -Dkafka-snapshot-store.zookeeper.connect=${ZK_URL}/${ZKPREFIX}kafka -Dkafka-journal.zookeeper.connect=${ZK_URL}/${ZKPREFIX}kafka"
+	fi
+
+	if [ ! -z ${COMPONENT} ];then
+		COMPONENT_OPT="-component ${COMPONENT}"
+	fi
+
+	if [ ! -z ${JDBC_SERVICE} ];then
+		JVM_OPT="${JVM_OPT} -Dstorage.jdbc-service=${JDBC_SERVICE}"
+	fi
+
+	export JVM_OPT
+
+	${NPI_HOME}/bin/npi ${COMPONENT_OPT} > /dev/null 2>> ${NPI_LOG} &
+	writePID ${1} ${!}
+
+	log INFO "GYMPB0109I: `getReadableName ${1}` started."
+}
+
+##
+## Start all NPI components in ordered sequence
+##
+startNpiComponents() {
+	for component in `getComponentList "1"`; do
+		startNpi ${component}; sleep ${SLEEP_TIME}
+	done
+}
+
+##
+## Find out all NPI related PIDs and SIGTERM them
+## NPI consist of storage, analytics, collector, ui instances
+##
+stopNpi() {
+	log INFO "GYMPB0113I: Stopping `getReadableName ${1}`."
+
+	npiPidFiles=(`getNpiPidFiles`)
+	errorsFound=0
+	nothingToStop=0
+	successStop=0
+
+	for pidFile in "${npiPidFiles[@]}"; do
+		if [ -f ${VAR_DIR}/${pidFile} ]; then
+		
+			pid=`head -1 ${VAR_DIR}/${pidFile}`
+			componentName=`echo ${pidFile} | cut -d. -f1`
+			isPidAlive=`ps -ef | grep ${pid} | grep -v grep`
+
+			if [ -z "${isPidAlive}" ]; then
+				nothingToStop=$(( ${nothingToStop} + 1 ))
+			else
+				kill -SIGTERM ${pid}
+			
+				tryCount=${TRY_COUNT}
+				isDown=0
+
+				while [ ${tryCount} -ne 0 ]; do
+					psStatus=`ps -ef | grep ${pid} | grep -v grep`
+					if [ -z "${psStatus}" ]; then
+						isDown=1; break
+					fi
+					sleep ${SLEEP_TIME}
+					tryCount=$(( ${tryCount} - 1 ))
+				done
+
+				if [ ${isDown} -eq 1 ]; then
+					successStop=$(( ${successStop} + 1 ))
+					removePID ${componentName}
+					log INFO "GYMPB0110I: `getReadableName ${componentName}` stopped."
+				else
+					log ERROR "GYMPB0114E: `getReadableName ${componentName}` is not stopping."
+				fi
+			fi
+		else
+			nothingToStop=$(( ${nothingToStop} + 1 ))
+		fi
+	done;
+
+	if [ ${successStop} -eq ${#npiPidFiles[@]} ] && [ ${nothingToStop} -eq 0 ]; then
+		log INFO "GYMPB0110I: `getReadableName ${1}` stopped."
+	elif [ ${nothingToStop} -eq ${#npiPidFiles[@]} ]; then
+		log INFO "GYMPB0108I: `getReadableName ${1}` not started."
+	else
+		log INFO "GYMPB0108I: `getReadableName ${1}` not started."
+	fi
+}
+
+##
+## Checks for 4 components,
+## storage, analytics, collector, ui
+## 0 - stopped, 1 - started, 2 - partially started
+##
+getNpiStatus() {
+	numberOfComponents=(`npiComponents`)
+	numberOfComponents=${#numberOfComponents[@]}
+	npiPidFiles=(`getNpiPidFiles`)
+	numberOfStartedComponents=0
+	if [ ${#npiPidFiles[@]} -eq ${numberOfComponents} ]; then
+		for pidFile in "${npiPidFiles[@]}"; do
+			componentName=`echo $pidFile | cut -d. -f1`
+			pidStatus=`isPidValid ${componentName}`
+			if [ ${pidStatus} -eq 1 ]; then
+				numberOfStartedComponents=$(( ${numberOfStartedComponents} +  1 ))
+			fi
+		done
+
+		if [ ${numberOfStartedComponents} -eq ${numberOfComponents} ]; then
+			echo 1
+		elif [ ${numberOfStartedComponents} -eq 0 ]; then
+			echo 0
+		else
+			echo 2
+		fi
+	elif [ ${#npiPidFiles[@]} -eq 0 ]; then
+		echo 0
+	else
+		echo 2
+	fi
+}

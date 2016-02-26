@@ -1,0 +1,98 @@
+#!/bin/bash
+
+##
+## Check via Zookeeper service
+## If 1 is up else 0
+##
+zkPing() {
+	host=`echo ${ZOOKEEP_URL} | cut -d: -f1`
+	port=`echo ${ZOOKEEP_URL} | cut -d: -f2`
+
+	result=`echo "${1}" | nc ${host} ${port} | grep "${2}" | grep -v grep`
+	if [ -z "${result}" ]; then
+		echo 0
+	else
+		echo 1
+	fi
+}
+
+##
+## Specifically checks for Zookeeper
+##
+isZookeeperStarted() {
+	echo `zkPing "stat" "Mode:"`
+}
+
+##
+## Check if Zookeeper / Kafka has started repeatitively
+## USAGE: checkInfraStarted <CMD> <PATTERN> <APPLICATION>
+##
+checkInfraStarted() {
+	tryCount=${TRY_COUNT}
+	isInfraUp=0
+
+	while [ ${tryCount} -ne 0 ]; do
+		ncResult=`zkPing ${1} ${2}`
+		if [ ${ncResult} -eq 1 ]; then
+			isInfraUp=1; break			
+		fi
+		sleep ${SLEEP_TIME}
+		tryCount=$(( ${tryCount} - 1 ))
+	done
+
+	if [ ${isInfraUp} -eq 0 ]; then
+		emergencyExit "1" "GYMPB01180E: ${3} is not starting."
+	else
+		log INFO "GYMPB0109I: ${3} started."
+	fi
+}
+
+##
+##
+##
+startZookeeper() {
+	status=`isPidValid "${ZOOKEEPER_APP_NAME}"`
+	emergencyExit ${status} "GYMPB0124E: ${ZOOKEEPER_READABLE} is already running."
+
+	log INFO "GYMPB0112I: Starting ${ZOOKEEPER_READABLE}."
+	cd ${SERVICES_DIR}/${KAFKA_APP_NAME} && ./bin/zookeeper-server-start.sh ${SERVICES_DIR}/conf/${KAFKA_APP_NAME}/${ZOOKEEPER_APP_NAME}.properties >>${ZOOKEEPER_LOG} 2>>${ZOOKEEPER_LOG} &
+	writePID ${ZOOKEEPER_APP_NAME} ${!}
+	checkInfraStarted "stat" "Mode:" ${ZOOKEEPER_READABLE}
+}
+
+##
+## There is no remote call, therefore stoping service must be local context
+## and checking PID should suffice
+##
+stopZookeeper() {
+	log INFO "GYMPB0113I: Stopping ${ZOOKEEPER_READABLE}."
+	checkDependentee ${ZOOKEEPER_APP_NAME}	
+
+	pid=`getPID ${ZOOKEEPER_APP_NAME}`
+	if [ -z "${pid}" ]; then
+		log INFO "GYMPB0108I: ${ZOOKEEPER_READABLE} not started."
+	else
+		log DEBUG "GYMPB0119D: Attempting to kill processes associated with ${pid}"
+		killAssociatively "-15" ${pid}
+
+		tryCount=${TRY_COUNT}
+		isZookeeperDown=0
+	
+		while [ $tryCount -ne 0 ]; do
+			psStatus=`getPsByName ${ZOOKEEPER_APP_NAME}`
+			if [ -z "${psStatus}" ]; then
+				isZookeeperDown=1; break
+			fi
+			sleep ${SLEEP_TIME}
+			tryCount=$(( ${tryCount} - 1 ))
+		done
+
+		if [ ${isZookeeperDown} -eq 0 ]; then
+			emergencyExit "1" "GYMPB0114E: ${ZOOKEEPER_READABLE} is not stopping."
+		else
+			log INFO "GYMPB0110I: ${ZOOKEEPER_READABLE} stopped."
+			removePID ${ZOOKEEPER_APP_NAME}
+		fi
+	fi	
+}
+

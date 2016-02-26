@@ -1,0 +1,262 @@
+#!/bin/bash
+
+##
+## Component list delimited with space, easier to construct array
+## In shutdown order
+##
+npiComponents() {
+	echo "${NPI_UI_APP_NAME} ${NPI_COLLECTOR_APP_NAME} ${NPI_ANALYTICS_APP_NAME} ${NPI_STORAGE_APP_NAME}"
+}
+
+log() {
+  	severity=$1; shift
+  
+  	if [ "${severity}" == "DEBUG" ]; then
+  			if [ ${DEBUG} -eq 1 ]; then
+  				printLog ${severity} $@
+  			fi
+  	else
+  			printLog ${severity} $@
+  	fi
+}
+
+printLog() {
+		 timestamp=`date "+%Y-%m-%d %H:%M:%S.%N"|cut -b1-23`
+  		echo "[${1}] [${timestamp}] [npid] ${@:2}" | tee -a ${CONSOLE_LOG}
+}
+
+showVersion() {
+  log INFO "GYMPB0102I: Application: ${PROG_NAME2} Version: ${PROG_VERSION}"
+  exit 0
+}
+
+##
+## E.g.
+## npid start zookeeper
+## npid start kafka
+## npid start hadoop
+## npid start npi
+##	
+npidUsage() {
+	echo ""
+	echo "Usage: npid {start|stop|restart|kill|status|version|help} {all|<component_name>|<service_name>}"
+	echo "component_name: {npi}"
+	echo "service_name: {zookeeper|kafka|hadoop}"
+	echo ""
+	echo "Example: "
+	echo "	1) npid start all"
+	echo "	2) npid start npi"
+	echo "	3) npid start zookeeper"
+	echo "	4) npid stop all"
+	echo ""
+}
+
+##
+## If 1 then log ERROR then exit with -1
+## Example: emergencyExit $status "GYM ..."
+##
+emergencyExit() {
+	if [ ${1} -eq 1 ]; then
+		log ERROR ${2}; exit -1
+	fi
+}
+
+##
+## Check based on application name if, 
+##	1. appplication PID file exist 
+##	2. PID file is not empty
+##	3. PID is found under ps ax
+## Return 1 if found else 0
+## E.g. 
+##	isPidValid zookeeper
+##	isPidValid storage
+##
+isPidValid() {
+	pidFile=${VAR_DIR}/${1}.pid
+
+	if [ -f ${pidFile} ]; then 
+		pid=`head -1 ${pidFile}`
+		if [ -z "${pid}" ]; then # pid file is empty
+			echo -2
+		else # pid file not empty
+			if [ -z "`ps ax | grep ${pid} | grep -v grep`" ]; then # pid is not within ps
+				echo -3
+			else # pid is valid within ps
+				echo 1
+			fi
+		fi	
+	else # no pid file exists
+		echo -1
+	fi
+}
+
+##
+## Retrieve information from ps with grep name
+## Expected to pass in the Application Name. E.g. zookeeper, hadoop
+##
+getPsByName() {
+	echo "`ps ax | grep ${1} | grep -v grep | grep -v ${PROG_NAME}`"
+}
+
+##
+## Created PID file based on application name. E.g. kafka.pid
+##
+writePID() {
+	if [ $# -eq 2 ]; then
+		echo $2 > ${VAR_DIR}/${1}.pid
+	else
+		log ERROR "GYMPB0125E: Not enough arguments to write into PID file."
+		exit 1
+	fi
+}
+
+##
+## Remove PID file based on application name. E.g. hadoop.pid
+##
+removePID() {
+	rm ${VAR_DIR}/${1}.pid
+}
+
+##
+## Get pid from PID file. E.g. hadoop.pid
+##
+getPID() {
+	if [ -f ${VAR_DIR}/${1}.pid ]; then
+		echo -e `head -1 ${VAR_DIR}/${1}.pid` # cat or head ???
+	else
+		echo ""
+	fi
+}
+
+##
+## Kill(15) pid and it's associated processes
+## Usage: killAssociatively -9 1145
+##
+killAssociatively() {
+	ps -ef | grep ${2} | grep -v grep | awk '{print $2}' | xargs -i kill ${1} {}
+}
+
+##
+## Application names are usually all lowercase
+## Example: Hadoop -> hadoop
+##
+getApplicationName() {
+	case "${1}" in
+		"${ZOOKEEPER_READABLE}")
+			echo ${ZOOKEEPER_APP_NAME}		
+		;;
+		"${KAFKA_READABLE} ")
+			echo ${KAFKA_APP_NAME}	
+		;;
+		"${HADOOP_READABLE}")
+			echo ${HADOOP_APP_NAME}	
+		;;
+		"${NPI_READABLE}")
+			echo ${NPI_APP_NAME}
+		;;
+		"${NPI_STORAGE_READABLE}")
+			echo ${NPI_STORAGE_APP_NAME}	
+		;;
+		"${NPI_ANALYTICS_READABLE}")
+			echo ${NPI_ANALYTICS_APP_NAME}
+		;;
+		"${NPI_COLLECTOR_READABLE}")
+			echo ${NPI_COLLECTOR_APP_NAME}		
+		;;
+		"${NPI_UI_READABLE}")
+			echo ${NPI_UI_APP_NAME}
+		;;
+		*)
+			echo "NA"
+		;;
+	esac
+}
+
+##
+## Readable names are usually with first letter as capital
+##
+getReadableName() {
+	case "${1}" in
+		"${ZOOKEEPER_APP_NAME}")
+			echo ${ZOOKEEPER_READABLE}		
+		;;
+		"${KAFKA_APP_NAME}")
+			echo ${KAFKA_READABLE} 		
+		;;
+		"${HADOOP_APP_NAME}")
+			echo ${HADOOP_READABLE}		
+		;;
+		"${NPI_APP_NAME}")
+			echo ${NPI_READABLE}
+		;;
+		"${NPI_STORAGE_APP_NAME}")
+			echo ${NPI_STORAGE_READABLE}		
+		;;
+		"${NPI_ANALYTICS_APP_NAME}")
+			echo ${NPI_ANALYTICS_READABLE}
+		;;
+		"${NPI_COLLECTOR_APP_NAME}")
+			echo ${NPI_COLLECTOR_READABLE}		
+		;;
+		"${NPI_UI_APP_NAME}")
+			echo ${NPI_UI_READABLE}
+		;;
+		*)
+			echo "NA"
+		;;
+	esac
+}
+
+##
+## Usage: getComponentList [1]
+##
+getComponentList() {
+	reverse=${1}
+	componentList=(`npiComponents`)
+	componentListStr=""
+	
+	if [ "${reverse}" == "1" ]; then
+		for (( i=${#componentList[@]}-1 ; i>=0 ; i-- )) ; do
+	    		componentListStr="${componentListStr} ${componentList[i]}"
+		done
+	else
+		for component in "${componentList[@]}"; do
+			componentListStr="${componentListStr} ${component}"
+		done
+	fi
+
+	echo ${componentListStr}
+}
+
+##
+## Usage: isNpiComponent storage
+## 1 - yes, 0 - no
+##
+isNpiComponent() {
+	found=0
+	npiComponentList=(`npiComponents`)
+	for component in "${npiComponentList[@]}"; do
+		if [ ${1} == "${component}" ]; then
+			found=1; break
+		fi
+	done;
+
+	echo ${found}
+}
+
+##
+## Get PID files related to NPI only
+## Example storage.pid, analytics.pid, collector.pid, ui.pid, npi.pid
+## Return as string delimited by space
+## Best practice to return into variable quoted by ()
+##
+getNpiPidFiles() {
+	npiComponents=(`getComponentList`)
+	npiPidFiles=""
+	for component in "${npiComponents[@]}"; do
+		npiPidFiles="${npiPidFiles} ${component}.pid"
+	done
+
+	echo $npiPidFiles
+}
+
