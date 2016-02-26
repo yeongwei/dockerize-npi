@@ -68,6 +68,7 @@ ui:
 #      - ${NPI_CONF_PATH}:/opt/npi/conf
 npi:
   image: npi:latest
+  net: "host"
   ports:
       - 8082:8081
       - 9443:9443
