@@ -57,7 +57,7 @@ startZookeeper() {
 	log INFO "GYMPB0112I: Starting ${ZOOKEEPER_READABLE}."
 	cd ${SERVICES_DIR}/${KAFKA_APP_NAME} && ./bin/zookeeper-server-start.sh ${SERVICES_DIR}/conf/${KAFKA_APP_NAME}/${ZOOKEEPER_APP_NAME}.properties >>${ZOOKEEPER_LOG} 2>>${ZOOKEEPER_LOG} &
 	writePID ${ZOOKEEPER_APP_NAME} ${!}
-	checkInfraStarted "stat" "Mode:" ${ZOOKEEPER_READABLE}
+	# checkInfraStarted "stat" "Mode:" ${ZOOKEEPER_READABLE}
 }
 
 ##
