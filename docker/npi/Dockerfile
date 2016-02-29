@@ -10,7 +10,11 @@ RUN yum install -y which
 
 ADD . $NPI_HOME
 COPY ./docker/npi/bootstrap.sh $NPI_HOME/
-ADD ./bin $NPI_HOME/bin
+
+RUN mkdir -p $NPI_HOME/bin
+ADD ./bin/scripts $NPI_HOME/bin/scripts
+ADD ./bin/npid $NPI_HOME/bin/npid
+
 RUN mkdir -p $NPI_HOME/log $NPI_HOME/work $NPI_HOME/conf
 
 RUN chown -R 1000:1000 $NPI_HOME

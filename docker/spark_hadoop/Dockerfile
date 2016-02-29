@@ -14,7 +14,11 @@ ADD ./services/hadoop $NPI_HOME/services/hadoop
 ADD ./services/conf $NPI_HOME/services/conf
 ADD ./services/spark $NPI_HOME/services/spark
 ADD ./docker/spark_hadoop/bootstrap.sh $NPI_HOME/
-ADD ./bin $NPI_HOME/bin
+
+RUN mkdir -p $NPI_HOME/bin
+ADD ./bin/scripts $NPI_HOME/bin/scripts
+ADD ./bin/npid $NPI_HOME/bin/npid
+
 RUN mkdir -p $NPI_HOME/work $NPI_HOME/services/hadoop/logs
 
 RUN chown -R 1000:1000 $NPI_HOME
