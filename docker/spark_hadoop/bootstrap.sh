@@ -23,7 +23,9 @@ trap "term_handler;exit" SIGTERM SIGINT
 
 (cd $NPI_HOME/bin && ./npid start hadoop)
 
-readPids() {	cat ${1} | tr '\n' ' '	}
+readPids() {	
+	cat ${1} | tr '\n' ' '	
+}
 PIDS="`readPids $NPI_HOME/var/hadoop*.pid`"
 PIDS="${PIDS}`readPids $NPI_HOME/var/yarn*.pid`"
 

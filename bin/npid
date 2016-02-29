@@ -79,6 +79,10 @@ if [ -f  ${BIN_DIR}/${ENV_FILE} ]; then
 	source ${BIN_DIR}/${ENV_FILE}
 fi
 
+export HADOOP_RM_PORT=${HADOOP_RM_PORT:-8088}
+export HADOOP_PID_DIR=${VAR_DIR:-"/tmp"}
+export YARN_PID_DIR=${VAR_DIR:-"/tmp"}
+
 CONSOLE_LOG=${LOG_DIR}/${PROG_DNAME}.log
 HADOOP_LOG=${LOG_DIR}/${HADOOP_APP_NAME}.log
 KAFKA_LOG=${LOG_DIR}/${KAFKA_APP_NAME}.log
