@@ -20,6 +20,7 @@ startKafka() {
 	cd ${SERVICES_DIR}/${KAFKA_APP_NAME} && ./bin/kafka-server-start.sh ${SERVICES_DIR}/conf/${KAFKA_APP_NAME}/${KAFKA_APP_NAME}-server.properties >>${KAFKA_LOG} 2>>${KAFKA_LOG} &
 	writePID ${KAFKA_APP_NAME} ${!}
 	# checkInfraStarted "dump" "/kafka/" ${KAFKA_READABLE}
+	log INFO "GYMPB0109I: ${KAFKA_READABLE} started."
 }
 
 ##

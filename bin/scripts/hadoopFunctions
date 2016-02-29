@@ -127,7 +127,7 @@ checkHadoop() {
 	if [ ${isHadoopUp} -eq 0 ]; then
 		emergencyExit "1"  "GYMPB0118E: Hadoop is not starting."
 	else
-		log INFO "GYMPB0109I: Hadoop started."
+		log INFO "GYMPB0109I: ${HADOOP_READABLE} started."
 	fi
 }
 
@@ -172,6 +172,7 @@ startHadoop() {
 	fi
 
 	# checkHadoop
+	log INFO "GYMPB0109I: ${HADOOP_READABLE} started."
 }
 
 ##
