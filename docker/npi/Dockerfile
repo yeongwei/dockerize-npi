@@ -13,6 +13,7 @@ COPY ./docker/npi/bootstrap.sh $NPI_HOME/
 
 RUN mkdir -p $NPI_HOME/bin
 ADD ./bin/scripts $NPI_HOME/bin/scripts
+ADD ./bin/npi $NPI_HOME/bin/npi
 ADD ./bin/npid $NPI_HOME/bin/npid
 
 RUN mkdir -p $NPI_HOME/log $NPI_HOME/work $NPI_HOME/conf
