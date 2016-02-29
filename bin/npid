@@ -75,7 +75,9 @@ VAR_DIR=${PROG_HOME}/var
 export NPI_HOME=${PROG_HOME}
 		
 ENV_FILE="npi_env.sh"
-source ${BIN_DIR}/${ENV_FILE}
+if [ -f  ${BIN_DIR}/${ENV_FILE} ]; then
+	source ${BIN_DIR}/${ENV_FILE}
+fi
 
 CONSOLE_LOG=${LOG_DIR}/${PROG_DNAME}.log
 HADOOP_LOG=${LOG_DIR}/${HADOOP_APP_NAME}.log
